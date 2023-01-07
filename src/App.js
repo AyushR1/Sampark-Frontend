@@ -1,10 +1,24 @@
+import React from 'react';
+import { Typography, AppBar } from '@mui/material';
 
-function App() {
+import VideoPlayer from './components/VideoPlayer';
+import Sidebar from './components/Sidebar';
+import Notifications from './components/Notifications';
+
+
+
+const App = () => {
+
   return (
     <div>
-      <p>Test</p>
+
+
+      <VideoPlayer />
+      <Sidebar>
+        <Notifications />
+      </Sidebar>
     </div>
   );
-}
+};
 
 export default App;
