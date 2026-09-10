@@ -21,6 +21,29 @@ context.on("page", (page) =>
 );
 const page = await context.newPage();
 
+async function assertMusicInput() {
+  assert.deepEqual(
+    await page.locator("video.mirrored").evaluate((video) => {
+      const track = video.srcObject.getAudioTracks()[0];
+      const { echoCancellation, noiseSuppression, autoGainControl } =
+        track.getSettings();
+      return {
+        echoCancellation,
+        noiseSuppression,
+        autoGainControl,
+        contentHint: track.contentHint,
+      };
+    }),
+    {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      contentHint: "music",
+    },
+    "Microphone audio preserves singing without speech cleanup or automatic gain",
+  );
+}
+
 try {
   await page.goto(base);
   await page
@@ -101,6 +124,7 @@ try {
     .click();
   const zoom = page.getByRole("slider", { name: "Zoom your preview" });
   await zoom.waitFor();
+  await assertMusicInput();
   assert.equal(
     await page
       .locator("video.mirrored")
@@ -333,6 +357,7 @@ try {
       .getAttribute("value");
     await page.getByLabel("Microphone", { exact: true }).selectOption(micId);
     await page.waitForFunction(() => window.oldMic.readyState === "ended");
+    await assertMusicInput();
     assert.equal(
       await page
         .locator("video.mirrored")

@@ -148,7 +148,11 @@ export function CallProvider({ children }) {
         [kind]: {
           ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
           ...(kind === "audio"
-            ? { echoCancellation: true, noiseSuppression: true }
+            ? {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+              }
             : {}),
         },
       });
@@ -158,6 +162,7 @@ export function CallProvider({ children }) {
         return;
       }
       track.enabled = kind === "audio" ? r.micOn : r.cameraOn;
+      if (kind === "audio") track.contentHint = "music";
       if (media) {
         const sender = media.peerConnection
           ?.getSenders()
@@ -362,8 +367,9 @@ export function CallProvider({ children }) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
             ...(r.deviceIds.audio
               ? { deviceId: { exact: r.deviceIds.audio } }
               : {}),
@@ -386,6 +392,7 @@ export function CallProvider({ children }) {
         r.stream = stream;
         stream.getAudioTracks().forEach((track) => {
           track.enabled = r.micOn;
+          track.contentHint = "music";
         });
         stream.getTracks().forEach(watchTrack);
         setLocalStream(stream);

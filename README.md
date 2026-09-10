@@ -34,6 +34,7 @@ No environment variables or backend deployment are required. Alternatively, run 
 
 ### In-call controls
 
+- Microphone audio is configured for singing: noise suppression, echo cancellation, and automatic gain control are disabled, and audio tracks are marked as music. These settings also apply after switching microphones. Browser/device support still determines the actual capture processing; this does not make the transmitted audio lossless.
 - Camera previews show the full frame at **1×**. Use **Zoom** (up to 3×), **Reset**, and the self-view enlarge/hide controls to adjust your own view. These changes do not zoom or crop the video sent to the other person.
 - **Devices** selects a microphone, camera, and, where supported by the browser, speaker. Changing an active input preserves its mute state. An audio-only session still needs to be restarted with video enabled to add a camera.
 - **Share screen** opens the browser’s screen/window/tab picker on supported browsers. Camera and microphone stay connected. **Stop sharing**, the browser’s stop control, or leaving the call ends capture. Screen audio is not captured.
