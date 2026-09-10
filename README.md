@@ -1,70 +1,58 @@
-# Getting Started with Create React App
+# Sampark
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A responsive, one-to-one video calling app. Create a temporary link, send it to someone, and accept their request. No accounts or downloads.
 
-## Available Scripts
+Built with React 19.3, Vite 8, PeerJS, and plain CSS. The application deploys entirely as static files on Netlify; there are no API routes, server processes, or Netlify Functions.
 
-In the project directory, you can run:
+## Local development
 
-### `npm start`
+Use Node.js 24 LTS (22.12+ also works).
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```sh
+npm ci
+npm run dev
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+Open the local URL printed by Vite. Camera and microphone access requires HTTPS in production; localhost is supported for development.
 
-### `npm test`
+## Deploy to Netlify
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Import this repository into Netlify. The included `netlify.toml` sets everything required:
 
-### `npm run build`
+- Build command: `npm run build`
+- Publish directory: `dist`
+- Node version: `24`
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+No environment variables or backend deployment are required. Alternatively, run `npm run build` and upload `dist` through Netlify Drop. Call invitations use `?call=...` on the root page, so they work directly without routing rewrites. [Netlify’s Vite guide](https://docs.netlify.com/build/frameworks/framework-setup-guides/vite/).
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Calling
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+1. Enter your name (optional). Turn video off first if you want an audio-only call.
+2. Select **Create call link** and allow your camera/microphone. Copy the link and share it with one person. Keep the tab open.
+3. The guest opens the link, enters their name, and selects **Join call**. Accept their request to share media.
+4. Toggle your mic or camera during the call. **Leave call** stops media tracks, closes connections, and expires your link. Create another link to call again.
 
-### `npm run eject`
+Permission failures, unavailable devices, malformed or expired links, self-calls, offline state, cancelled setup, and unanswered calls show recovery messages. If the browser blocks audio playback, a button lets you start it manually. Names, links, and call history are not persisted by the application.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### Connection service and limitations
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Frontend-only hosting still needs WebRTC signaling. Sampark uses the free public **PeerJS Cloud** service to introduce browsers; it replaces the previous dependency on a separate Socket.IO backend. Both people must be online, and links last for the current browser session. Calls are one-to-one and depend on that service being reachable. WebRTC encrypts media in transit; Sampark does not record it.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+Some restrictive firewalls, VPNs, and symmetric NAT networks need a TURN relay. The app uses PeerJS’s default ICE configuration, which includes public STUN and TURN endpoints; no dedicated relay service or private relay credentials are configured. Public relay availability is not guaranteed, so some networks may not connect; the UI times out and suggests another connection. For production reliability across those networks, use a managed TURN provider with short-lived credentials. Never put a permanent secret in frontend environment variables. [PeerJS connection and TURN documentation](https://peerjs.com/client/faq).
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Checks
 
-## Learn More
+```sh
+npm test
+npm run build
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+For browser checks, start `npm run dev`, then run the following in another terminal. Google Chrome must be installed (or set `PLAYWRIGHT_CHANNEL` to an installed Playwright channel). Only synthetic media is used; these tests do not access your real camera or microphone.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```sh
+npm run test:browser
+# Also test a real two-tab call through PeerJS Cloud (requires internet):
+LIVE_CALL_TEST=1 npm run test:browser
+```
 
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Set `APP_URL` if Vite uses a different port, for example `APP_URL=http://127.0.0.1:5174`. Browser checks cover responsive layout, permission denial, cancellation while a permission request is pending, invitation validation, and help. The optional live check also covers copying links, rejecting self-calls, decline/retry, accepting calls, device controls, hangup cleanup on both ends, and a second audio-only call. Screenshots are saved under the ignored `test-results/` directory.

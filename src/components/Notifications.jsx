@@ -1,23 +1,26 @@
-import React, { useContext } from 'react';
-import { Button } from '@mui/material';
+import { useCall } from "../Context.jsx";
+import Icon from "./Icon.jsx";
 
-import { SocketContext } from '../Context';
-
-const Notifications = () => {
-  const { answerCall, call, callAccepted } = useContext(SocketContext);
-
+export default function Notifications() {
+  const { error, setError, notice, setNotice } = useCall();
+  if (!error && !notice) return null;
   return (
-    <>
-      {call.isReceivingCall && !callAccepted && (
-        <div style={{ display: 'flex', justifyContent: 'space-around' }}>
-          <h1>{call.name} is calling:</h1>
-          <Button variant="contained" color="primary" onClick={answerCall}>
-            Answer
-          </Button>
-        </div>
-      )}
-    </>
+    <div
+      className={`notification ${error ? "notification-error" : ""}`}
+      role={error ? "alert" : "status"}
+    >
+      <Icon name={error ? "help" : "check"} size={20} />
+      <p>{error || notice}</p>
+      <button
+        className="icon-button"
+        aria-label="Dismiss message"
+        onClick={() => {
+          setError("");
+          setNotice("");
+        }}
+      >
+        <Icon name="close" size={18} />
+      </button>
+    </div>
   );
-};
-
-export default Notifications;
+}
