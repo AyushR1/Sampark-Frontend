@@ -1,4 +1,20 @@
 const paths = {
+  settings: (
+    <>
+      <path d="M4 7h16M4 17h16" />
+      <circle cx="8" cy="7" r="3" />
+      <circle cx="16" cy="17" r="3" />
+    </>
+  ),
+  screen: (
+    <>
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8m-4-4v4m-3-12 3-3 3 3m-3-3v7" />
+    </>
+  ),
+  chat: (
+    <path d="M21 11a8 8 0 0 1-8 8H5l-3 3V5a3 3 0 0 1 3-3h8a8 8 0 0 1 8 9Z" />
+  ),
   video: (
     <>
       <rect x="3" y="6" width="12" height="12" rx="3" />
@@ -56,6 +72,7 @@ const paths = {
   ),
   spark: <path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" />,
   expand: <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />,
+  shrink: <path d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5" />,
 };
 
 export default function Icon({ name, size = 20, ...props }) {

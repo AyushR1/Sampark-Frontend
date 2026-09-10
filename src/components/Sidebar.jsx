@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useCall } from "../Context.jsx";
 import Icon from "./Icon.jsx";
+import CallChat from "./CallChat.jsx";
 
 export default function Sidebar() {
   const {
@@ -115,15 +116,15 @@ export default function Sidebar() {
                   Decline
                 </button>
               </div>
-            ) : (
+            ) : phase !== "connected" ? (
               <button className="button danger" onClick={leaveCall}>
                 <Icon name="phoneOff" />
                 {phase === "connected" ? "Leave call" : "Cancel call"}
               </button>
-            )}
+            ) : null}
             <p className="small-note">
               {phase === "connected"
-                ? "Leaving turns off your camera and microphone."
+                ? "Your camera and microphone are under your control."
                 : "Your media is shared only after the call is accepted."}
             </p>
           </div>
@@ -278,6 +279,7 @@ export default function Sidebar() {
             </form>
           </>
         )}
+        {phase === "connected" && <CallChat />}
       </div>
       <div className="panel-footer">
         <Icon name="lock" size={15} />

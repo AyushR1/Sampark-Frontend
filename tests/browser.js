@@ -72,10 +72,54 @@ try {
   for (const width of [320, 768, 1024]) {
     await page.setViewportSize({ width, height: 900 });
     assert.ok(
-      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
       `No overflow at ${width}px`,
     );
   }
+  for (const [width, height] of [
+    [1440, 900],
+    [1366, 768],
+    [1280, 720],
+    [390, 844],
+  ]) {
+    await page.setViewportSize({ width, height });
+    assert.ok(
+      await page.evaluate(
+        () => document.documentElement.scrollHeight <= innerHeight,
+      ),
+      `Lobby fits on one page at ${width}×${height}`,
+    );
+  }
+  await page.getByRole("button", { name: "Devices", exact: true }).click();
+  await page.getByRole("dialog", { name: "Camera & audio" }).waitFor();
+  await page.getByLabel("Microphone", { exact: true }).selectOption("");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Enable camera & mic", exact: true })
+    .click();
+  const zoom = page.getByRole("slider", { name: "Zoom your preview" });
+  await zoom.waitFor();
+  assert.equal(
+    await page
+      .locator("video.mirrored")
+      .evaluate((video) => getComputedStyle(video).objectFit),
+    "contain",
+    "The full camera frame is visible at default zoom",
+  );
+  await zoom.press("End");
+  assert.equal(await zoom.inputValue(), "3");
+  assert.equal(
+    await page
+      .locator("video.mirrored")
+      .evaluate((video) => getComputedStyle(video).transform),
+    "matrix(-3, 0, 0, 3, 0, 0)",
+  );
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  assert.equal(await zoom.inputValue(), "1");
+  await page.getByRole("button", { name: "Stop preview", exact: true }).click();
+  await page.getByRole("button", { name: "Dismiss message" }).click();
   await page.setViewportSize({ width: 1440, height: 1080 });
 
   const denied = await context.newPage();
@@ -140,6 +184,20 @@ try {
       .getByRole("button", { name: "Create call link", exact: true })
       .click();
     await page.getByLabel("Your call link").waitFor({ timeout: 25000 });
+    for (const [width, height] of [
+      [1280, 720],
+      [390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      assert.ok(
+        await page.evaluate(
+          () => document.documentElement.scrollHeight <= innerHeight,
+        ),
+        `Ready preview fits on one page at ${width}×${height}`,
+      );
+    }
+    await page.screenshot({ path: "test-results/preview-ready-mobile.png" });
+    await page.setViewportSize({ width: 1280, height: 720 });
     let link = await page.getByLabel("Your call link").inputValue();
     await page
       .getByRole("button", { name: "Copy call link", exact: true })
@@ -183,8 +241,180 @@ try {
     await guest
       .getByRole("heading", { name: "You’re together." })
       .waitFor({ timeout: 45000 });
+    await page.waitForFunction(
+      () => document.querySelector(".video-stage > video")?.currentTime > 0,
+    );
+    for (const [width, height] of [
+      [1440, 900],
+      [1280, 720],
+      [390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      assert.ok(
+        await page.evaluate(
+          () => document.documentElement.scrollHeight <= innerHeight,
+        ),
+        `Connected call fits on one screen at ${width}×${height}`,
+      );
+      const leave = await page
+        .getByRole("button", { name: "Leave call", exact: true })
+        .boundingBox();
+      assert.ok(
+        leave.y >= 0 && leave.y + leave.height <= height,
+        "Leave control stays visible",
+      );
+    }
+    await page.screenshot({ path: "test-results/call-mobile.png" });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.getByRole("slider", { name: "Zoom your preview" }).press("End");
     assert.equal(
-      await page.getByText("Call declined. Your link is still ready to share.").isVisible(),
+      await page
+        .locator(".self-preview video")
+        .evaluate((video) => getComputedStyle(video).transform),
+      "matrix(-3, 0, 0, 3, 0, 0)",
+    );
+    assert.equal(
+      await guest
+        .locator(".video-stage > video")
+        .evaluate((video) => getComputedStyle(video).transform),
+      "none",
+      "Zoom affects only the local preview",
+    );
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
+    await page.getByRole("button", { name: "Enlarge your preview" }).click();
+    await page.locator(".self-preview-large").waitFor();
+    await page.getByRole("button", { name: "Hide self view" }).click();
+    assert.equal(await page.locator(".self-preview").isVisible(), false);
+    await page.getByRole("button", { name: "Show self view" }).click();
+    await page.getByRole("button", { name: "Shrink your preview" }).click();
+    await page.bringToFront();
+    await page.getByRole("button", { name: "Enter fullscreen" }).click();
+    await page.getByRole("button", { name: "Exit fullscreen" }).waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Leave call", exact: true })
+        .isVisible(),
+      true,
+    );
+    await page.getByRole("button", { name: "Exit fullscreen" }).click();
+
+    await page
+      .getByRole("textbox", { name: "Message", exact: true })
+      .fill("Hello Riya! <b>Plain text</b>");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await guest
+      .getByRole("log")
+      .getByText("Hello Riya! <b>Plain text</b>", { exact: true })
+      .waitFor();
+    await guest
+      .getByRole("textbox", { name: "Message", exact: true })
+      .fill("Hello Ayush!");
+    await guest.getByRole("button", { name: "Send message" }).click();
+    await page
+      .getByRole("log")
+      .getByText("Hello Ayush!", { exact: true })
+      .waitFor();
+
+    await page.bringToFront();
+    await page.keyboard.press("Alt+KeyM");
+    await page
+      .getByRole("button", { name: "Unmute microphone", exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: "Devices", exact: true }).click();
+    await page.evaluate(() => {
+      window.oldMic = document
+        .querySelector("video.mirrored")
+        .srcObject.getAudioTracks()[0];
+    });
+    const micId = await page
+      .getByLabel("Microphone", { exact: true })
+      .locator("option")
+      .nth(1)
+      .getAttribute("value");
+    await page.getByLabel("Microphone", { exact: true }).selectOption(micId);
+    await page.waitForFunction(() => window.oldMic.readyState === "ended");
+    assert.equal(
+      await page
+        .locator("video.mirrored")
+        .evaluate((video) => video.srcObject.getAudioTracks()[0].enabled),
+      false,
+      "Switching devices preserves mute",
+    );
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.keyboard.press("Alt+KeyM");
+
+    // Only synthetic display content; never open the system screen picker in tests.
+    await page.evaluate(() => {
+      navigator.mediaDevices.getDisplayMedia = async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1280;
+        canvas.height = 720;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#265d43";
+        ctx.fillRect(0, 0, 1280, 720);
+        ctx.strokeStyle = "#e1edc8";
+        ctx.lineWidth = 16;
+        ctx.strokeRect(8, 8, 1264, 704);
+        ctx.fillStyle = "white";
+        ctx.font = "48px sans-serif";
+        ctx.fillText("Shared screen — full frame", 80, 180);
+        window.testScreen = canvas.captureStream(5);
+        const track = window.testScreen.getVideoTracks()[0];
+        const timer = setInterval(() => {
+          if (track.readyState === "ended") return clearInterval(timer);
+          ctx.fillStyle = "#265d43";
+          ctx.fillRect(80, 220, 700, 60);
+          ctx.fillStyle = "white";
+          ctx.fillText(`Frame ${Date.now()}`, 80, 265);
+        }, 200);
+        return window.testScreen;
+      };
+    });
+    await page
+      .getByRole("button", { name: "Share screen", exact: true })
+      .click();
+    await guest
+      .getByLabel("Shared screen", { exact: true })
+      .waitFor({ timeout: 25000 });
+    await guest.waitForFunction(
+      () => document.querySelector(".screen-video")?.videoWidth > 0,
+    );
+    assert.equal(
+      await guest
+        .getByLabel("Shared screen", { exact: true })
+        .evaluate((video) => getComputedStyle(video).objectFit),
+      "contain",
+    );
+    await guest.screenshot({ path: "test-results/screen-sharing.png" });
+    await page
+      .getByRole("button", { name: "Stop sharing", exact: true })
+      .click();
+    await guest
+      .getByLabel("Shared screen", { exact: true })
+      .waitFor({ state: "detached" });
+    assert.ok(
+      await page.evaluate(() =>
+        window.testScreen
+          .getTracks()
+          .every((track) => track.readyState === "ended"),
+      ),
+    );
+    await page
+      .getByRole("button", { name: "Share screen", exact: true })
+      .click();
+    await guest.getByLabel("Shared screen", { exact: true }).waitFor();
+    await page.evaluate(() => {
+      const track = window.testScreen.getVideoTracks()[0];
+      track.stop();
+      track.dispatchEvent(new Event("ended"));
+    });
+    await guest
+      .getByLabel("Shared screen", { exact: true })
+      .waitFor({ state: "detached" });
+    assert.equal(
+      await page
+        .getByText("Call declined. Your link is still ready to share.")
+        .isVisible(),
       false,
       "Old call messages are cleared for the next conversation",
     );
@@ -205,6 +435,10 @@ try {
       path: "test-results/connected.png",
       fullPage: true,
     });
+    await page
+      .getByRole("button", { name: "Share screen", exact: true })
+      .click();
+    await guest.getByLabel("Shared screen", { exact: true }).waitFor();
     await page.evaluate(() => {
       window.previousTracks = document
         .querySelector("video.mirrored")
@@ -216,6 +450,14 @@ try {
         .srcObject.getTracks();
     });
     await page.getByRole("button", { name: "Leave call", exact: true }).click();
+    assert.ok(
+      await page.evaluate(() =>
+        window.testScreen
+          .getTracks()
+          .every((track) => track.readyState === "ended"),
+      ),
+      "Leaving also stops screen capture",
+    );
     await guest.getByRole("status").filter({ hasText: "left" }).waitFor();
     assert.ok(
       await page.evaluate(() =>
@@ -251,6 +493,14 @@ try {
     await page
       .getByRole("heading", { name: "You’re together." })
       .waitFor({ timeout: 45000 });
+    assert.equal(
+      await page
+        .getByRole("log")
+        .getByText("Hello Ayush!", { exact: true })
+        .count(),
+      0,
+      "Chat is cleared between calls",
+    );
     await guest.getByText("Here with you, audio only.").waitFor();
     await guest
       .getByRole("button", { name: "Leave call", exact: true })
@@ -262,6 +512,10 @@ try {
     );
   }
   assert.deepEqual(errors, [], "No uncaught browser errors");
+} catch (error) {
+  await page.screenshot({ path: "test-results/failure.png", fullPage: true });
+  console.error({ url: page.url(), errors, title: await page.title() });
+  throw error;
 } finally {
   await browser.close();
 }

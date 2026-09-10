@@ -7,12 +7,14 @@ import Notifications from "./components/Notifications.jsx";
 
 export default function App() {
   const help = useRef(null);
-  const { phase, online } = useCall();
+  const { phase, online, localStream } = useCall();
   const inCall = ["calling", "incoming", "connecting", "connected"].includes(
     phase,
   );
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${localStream ? "preview-ready" : ""} ${inCall ? "in-call" : ""} ${phase === "connected" ? "call-connected" : ""}`}
+    >
       <a className="skip-link" href="#main">
         Skip to main content
       </a>

@@ -21,11 +21,171 @@ export function CallProvider({ children }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [startedAt, setStartedAt] = useState(null);
+  const [screenStream, setScreenStream] = useState(null);
+  const [remoteScreen, setRemoteScreen] = useState(null);
+  const [sharingPending, setSharingPending] = useState(false);
+  const [deviceIds, setDeviceIds] = useState({ audio: "", video: "" });
+  const [changingDevice, setChangingDevice] = useState(false);
+  const [speakerId, setSpeakerId] = useState("");
+  const [messages, setMessages] = useState([]);
   const runtime = useRef({ epoch: 0 });
   const r = runtime.current;
   r.name = name;
   r.micOn = micOn;
   r.cameraOn = cameraOn;
+  r.deviceIds = deviceIds;
+
+  function watchTrack(track) {
+    track.addEventListener("ended", () => {
+      if (r.stream?.getTracks().includes(track))
+        fail(
+          "A camera or microphone was disconnected. Check your devices and start again.",
+        );
+    });
+  }
+
+  function addMessage(text, own) {
+    // ponytail: keep the latest 200 messages in memory; add export for longer history.
+    setMessages((previous) => [
+      ...previous.slice(-199),
+      { text, own, at: Date.now() },
+    ]);
+  }
+
+  function sendMessage(text) {
+    text = text.trim();
+    if (!text || text.length > 2000 || !r.accepted || !r.media || !r.data?.open)
+      return false;
+    try {
+      r.data.send({ type: "chat", text });
+      addMessage(text, true);
+      return true;
+    } catch {
+      setError("Your message couldn’t be sent. Please try again.");
+      return false;
+    }
+  }
+
+  function stopScreenShare(update = true) {
+    const { screen, screenCall } = r;
+    r.screen = null;
+    r.screenCall = null;
+    screen?.getTracks().forEach((track) => track.stop());
+    screenCall?.close();
+    if (update) setScreenStream(null);
+    if (screen && r.data?.open) r.data.send({ type: "screen-stopped" });
+  }
+
+  async function shareScreen() {
+    if (r.sharing || r.screen || !r.media || !r.accepted) return;
+    const { epoch, data } = r;
+    r.sharing = true;
+    setSharingPending(true);
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+      if (r.epoch !== epoch || r.data !== data || !data?.open) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const call = r.peer.call(data.peer, stream, {
+        metadata: { type: "screen" },
+      });
+      if (!call)
+        throw new Error("Screen sharing couldn’t start. Please try again.");
+      r.screen = stream;
+      r.screenCall = call;
+      setScreenStream(stream);
+      stream.getVideoTracks()[0].addEventListener("ended", () => {
+        if (r.screen === stream) stopScreenShare();
+      });
+      call.on("close", () => {
+        if (r.screenCall === call) stopScreenShare();
+      });
+      call.on("error", () => {
+        if (r.screenCall !== call) return;
+        stopScreenShare();
+        setError(
+          "Screen sharing was interrupted. Your call is still connected.",
+        );
+      });
+    } catch (err) {
+      stream?.getTracks().forEach((track) => track.stop());
+      if (r.epoch === epoch && err.name !== "NotAllowedError")
+        setError(
+          "Couldn’t share your screen. Check screen-recording permissions and try again.",
+        );
+    } finally {
+      if (r.epoch === epoch) {
+        r.sharing = false;
+        setSharingPending(false);
+      }
+    }
+  }
+
+  async function changeDevice(kind, deviceId) {
+    if (!["audio", "video"].includes(kind) || r.changing || r.start) return;
+    if (!r.stream) {
+      setDeviceIds((ids) => ({ ...ids, [kind]: deviceId }));
+      return;
+    }
+    const { epoch, stream, media } = r;
+    const oldTrack = stream.getTracks().find((track) => track.kind === kind);
+    if (!oldTrack) {
+      setError(
+        "End this audio-only session and turn video on to choose a camera.",
+      );
+      return;
+    }
+    r.changing = true;
+    setChangingDevice(true);
+    let replacement;
+    try {
+      replacement = await navigator.mediaDevices.getUserMedia({
+        [kind]: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          ...(kind === "audio"
+            ? { echoCancellation: true, noiseSuppression: true }
+            : {}),
+        },
+      });
+      const track = replacement.getTracks()[0];
+      if (r.epoch !== epoch || r.media !== media) {
+        track.stop();
+        return;
+      }
+      track.enabled = kind === "audio" ? r.micOn : r.cameraOn;
+      if (media) {
+        const sender = media.peerConnection
+          ?.getSenders()
+          .find((sender) => sender.track?.kind === kind);
+        if (!sender)
+          throw new Error("That device can’t be changed during this call.");
+        await sender.replaceTrack(track);
+      }
+      if (r.epoch !== epoch || r.media !== media) {
+        track.stop();
+        return;
+      }
+      stream.removeTrack(oldTrack);
+      stream.addTrack(track);
+      watchTrack(track);
+      oldTrack.stop();
+      setLocalStream(new MediaStream(stream.getTracks()));
+      setDeviceIds((ids) => ({ ...ids, [kind]: deviceId }));
+    } catch (err) {
+      replacement?.getTracks().forEach((track) => track.stop());
+      if (r.epoch === epoch) setError(mediaError(err));
+    } finally {
+      if (r.epoch === epoch) {
+        r.changing = false;
+        setChangingDevice(false);
+      }
+    }
+  }
 
   function clearConversation() {
     clearTimeout(r.timer);
@@ -35,6 +195,11 @@ export function CallProvider({ children }) {
     r.accepted = false;
     data?.close();
     media?.close();
+    stopScreenShare();
+    r.remoteScreenCall?.close();
+    r.remoteScreenCall = null;
+    setRemoteScreen(null);
+    setMessages([]);
     setRemoteStream(null);
     setStartedAt(null);
   }
@@ -50,13 +215,22 @@ export function CallProvider({ children }) {
       stream: null,
       start: null,
       accepted: false,
+      sharing: false,
+      changing: false,
     });
+    stopScreenShare(update);
+    r.remoteScreenCall?.close();
+    r.remoteScreenCall = null;
     data?.close();
     media?.close();
     peer?.destroy();
     stream?.getTracks().forEach((track) => track.stop());
     if (!update) return;
     setLocalStream(null);
+    setRemoteScreen(null);
+    setSharingPending(false);
+    setChangingDevice(false);
+    setMessages([]);
     setRemoteStream(null);
     setStartedAt(null);
     setPeerId("");
@@ -122,6 +296,21 @@ export function CallProvider({ children }) {
         if (typeof message.camera === "boolean") setRemoteVideo(message.camera);
         if (typeof message.mic === "boolean") setRemoteMic(message.mic);
       }
+      if (
+        message.type === "chat" &&
+        r.accepted &&
+        r.media &&
+        typeof message.text === "string" &&
+        message.text.trim() &&
+        message.text.length <= 2000
+      )
+        addMessage(message.text.trim(), false);
+      if (message.type === "screen-stopped") {
+        const call = r.remoteScreenCall;
+        r.remoteScreenCall = null;
+        call?.close();
+        setRemoteScreen(null);
+      }
       if (message.type === "accept" && outgoing && !r.accepted) {
         r.accepted = true;
         setRemoteName(displayName(message.name));
@@ -172,12 +361,21 @@ export function CallProvider({ children }) {
     r.start = (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            ...(r.deviceIds.audio
+              ? { deviceId: { exact: r.deviceIds.audio } }
+              : {}),
+          },
           video: r.cameraOn
             ? {
                 width: { ideal: 1280 },
                 height: { ideal: 720 },
                 facingMode: "user",
+                ...(r.deviceIds.video
+                  ? { deviceId: { exact: r.deviceIds.video } }
+                  : {}),
               }
             : false,
         });
@@ -189,14 +387,7 @@ export function CallProvider({ children }) {
         stream.getAudioTracks().forEach((track) => {
           track.enabled = r.micOn;
         });
-        stream.getTracks().forEach((track) =>
-          track.addEventListener("ended", () => {
-            if (r.stream === stream)
-              fail(
-                "A camera or microphone was disconnected. Check your devices and start again.",
-              );
-          }),
-        );
+        stream.getTracks().forEach(watchTrack);
         setLocalStream(stream);
         // ponytail: public signaling/ICE services; add managed TURN for guaranteed relay availability.
         const peer = new Peer(`sp-${crypto.randomUUID()}`, {
@@ -213,6 +404,30 @@ export function CallProvider({ children }) {
           attachData(data, false);
         });
         peer.on("call", (media) => {
+          if (media.metadata?.type === "screen") {
+            if (
+              r.peer !== peer ||
+              !r.accepted ||
+              !r.media ||
+              r.remoteScreenCall ||
+              media.peer !== r.data?.peer
+            )
+              return media.close();
+            r.remoteScreenCall = media;
+            media.on("stream", (stream) => {
+              if (r.remoteScreenCall === media) setRemoteScreen(stream);
+            });
+            const ended = () => {
+              if (r.remoteScreenCall !== media) return;
+              r.remoteScreenCall = null;
+              setRemoteScreen(null);
+              media.close();
+            };
+            media.on("close", ended);
+            media.on("error", ended);
+            media.answer();
+            return;
+          }
           if (
             r.peer !== peer ||
             !r.accepted ||
@@ -324,6 +539,7 @@ export function CallProvider({ children }) {
   }
 
   function toggleDevice(kind) {
+    if (r.changing || r.start) return;
     const isCamera = kind === "video";
     const enabled = isCamera ? !cameraOn : !micOn;
     if (isCamera && enabled && r.stream && !r.stream.getVideoTracks().length) {
@@ -389,6 +605,18 @@ export function CallProvider({ children }) {
         notice,
         setNotice,
         startedAt,
+        screenStream,
+        remoteScreen,
+        sharingPending,
+        shareScreen,
+        stopScreenShare,
+        deviceIds,
+        changeDevice,
+        changingDevice,
+        speakerId,
+        setSpeakerId,
+        messages,
+        sendMessage,
         prepare,
         joinCall,
         answerCall,
