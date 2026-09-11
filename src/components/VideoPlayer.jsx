@@ -2,72 +2,41 @@ import { useEffect, useRef, useState } from "react";
 import { useCall } from "../Context.jsx";
 import Icon from "./Icon.jsx";
 import DeviceSettings from "./DeviceSettings.jsx";
+import CallAudio from "./CallAudio.jsx";
 
-function Video({
-  stream,
-  local = false,
-  hidden = false,
-  zoom = 1,
-  screen = false,
-}) {
+function Video({ stream, local = false, hidden = false, screen = false }) {
   const video = useRef(null);
-  const { speakerId, setError } = useCall();
-  const [needsPlay, setNeedsPlay] = useState(false);
   useEffect(() => {
     const element = video.current;
     element.srcObject = stream;
-    let active = true;
-    setNeedsPlay(false);
-    if (stream)
-      element.play().catch(() => {
-        if (active && !local) setNeedsPlay(true);
-      });
+    if (stream) element.play().catch(() => {});
     return () => {
-      active = false;
       element.srcObject = null;
     };
-  }, [stream, local]);
-  useEffect(() => {
-    if (!local && !screen && video.current.setSinkId)
-      video.current
-        .setSinkId(speakerId)
-        .catch(() =>
-          setError(
-            "Couldn’t use the selected speaker. Choose another in Devices.",
-          ),
-        );
-  }, [speakerId, local, screen]);
+  }, [stream]);
   return (
-    <>
-      <video
-        ref={video}
-        autoPlay
-        playsInline
-        muted={local || screen}
-        className={`${local ? "mirrored" : ""} ${hidden ? "video-hidden" : ""} ${screen ? "screen-video" : ""}`}
-        style={local ? { "--preview-zoom": zoom } : undefined}
-        aria-label={
-          screen
-            ? "Shared screen"
-            : local
-              ? "Your camera preview"
-              : "Other participant’s video"
-        }
-      />
-      {needsPlay && (
-        <button
-          className="button playback-button"
-          onClick={() =>
-            video.current
-              .play()
-              .then(() => setNeedsPlay(false))
-              .catch(() => setNeedsPlay(true))
-          }
-        >
-          <Icon name="mic" /> Tap to play call audio
-        </button>
-      )}
-    </>
+    <video
+      ref={video}
+      autoPlay
+      playsInline
+      muted
+      className={`${local ? "mirrored" : ""} ${hidden ? "video-hidden" : ""} ${screen ? "screen-video" : ""}`}
+      onResize={(event) => {
+        const element = event.currentTarget;
+        if (local && element.videoHeight)
+          element.parentElement.style.setProperty(
+            "--camera-aspect",
+            element.videoWidth / element.videoHeight,
+          );
+      }}
+      aria-label={
+        screen
+          ? "Shared screen"
+          : local
+            ? "Your camera preview"
+            : "Other participant’s video"
+      }
+    />
   );
 }
 
@@ -94,10 +63,14 @@ export default function VideoPlayer() {
     stopScreenShare,
     sharingPending,
     changingDevice,
+    zoom,
+    setZoom,
+    chatOpen,
+    toggleChat,
+    unreadMessages,
   } = useCall();
   const stage = useRef(null);
   const [elapsed, setElapsed] = useState(0);
-  const [zoom, setZoom] = useState(1);
   const [showSelf, setShowSelf] = useState(true);
   const [largeSelf, setLargeSelf] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -114,7 +87,6 @@ export default function VideoPlayer() {
   }, []);
   useEffect(() => {
     if (!localStream) {
-      setZoom(1);
       setShowSelf(true);
       setLargeSelf(false);
     }
@@ -158,7 +130,15 @@ export default function VideoPlayer() {
       <div className="panel-heading">
         <span>
           <Icon name="video" size={18} />
-          {connected ? "Your conversation" : "Your preview"}
+          {connected ? remoteName : "Your preview"}
+          {connected && !remoteMic && (
+            <Icon
+              name="micOff"
+              size={14}
+              aria-hidden="false"
+              aria-label="Their microphone is muted"
+            />
+          )}
         </span>
         <span className="preview-privacy">
           {connected ? (
@@ -174,18 +154,20 @@ export default function VideoPlayer() {
       </div>
       <div className={`video-stage ${connected ? "is-connected" : ""}`}>
         <div className="stage-top">
-          <span className="stage-chip">
-            <span className={`status-dot ${connected ? "" : "soft"}`} />
-            {connected
-              ? sharedScreen
-                ? remoteScreen
-                  ? `${remoteName} is presenting`
-                  : "You are presenting"
-                : "CONNECTED"
-              : localStream
-                ? "LOOKING GOOD"
-                : "YOUR SPACE"}
-          </span>
+          {(!connected || sharedScreen) && (
+            <span className="stage-chip">
+              <span className={`status-dot ${connected ? "" : "soft"}`} />
+              {connected
+                ? sharedScreen
+                  ? remoteScreen
+                    ? `${remoteName} is presenting`
+                    : "You are presenting"
+                  : "CONNECTED"
+                : localStream
+                  ? "LOOKING GOOD"
+                  : "YOUR SPACE"}
+            </span>
+          )}
           {document.fullscreenEnabled && (
             <button
               className="icon-button fullscreen-button"
@@ -223,12 +205,7 @@ export default function VideoPlayer() {
               className={`self-preview ${largeSelf ? "self-preview-large" : ""}`}
               hidden={!showSelf}
             >
-              <Video
-                stream={localStream}
-                local
-                hidden={!cameraOn}
-                zoom={zoom}
-              />
+              <Video stream={localStream} local hidden={!cameraOn} />
               <button
                 className="icon-button self-expand"
                 aria-label={
@@ -252,7 +229,6 @@ export default function VideoPlayer() {
               stream={localStream}
               local
               hidden={!localStream || !cameraOn}
-              zoom={zoom}
             />
             {(!localStream || !cameraOn) && (
               <div className="camera-placeholder">
@@ -299,27 +275,24 @@ export default function VideoPlayer() {
             )}
           </>
         )}
-        <div className="stage-bottom">
-          <span className="name-chip">
-            {connected
-              ? remoteName
-              : `${name.trim() || "You"}${name.trim() ? " (you)" : ""}`}
-            {(connected ? !remoteMic : !micOn) && (
-              <Icon name="micOff" size={14} />
-            )}
-          </span>
-          <span className="stage-note">
-            {connected
-              ? "A little closer."
-              : localStream
+        {!connected && (
+          <div className="stage-bottom">
+            <span className="name-chip">
+              {`${name.trim() || "You"}${name.trim() ? " (you)" : ""}`}
+              {!micOn && <Icon name="micOff" size={14} />}
+            </span>
+            <span className="stage-note">
+              {localStream
                 ? cameraOn
                   ? "Ready when you are"
                   : "Camera is off"
                 : "Camera & mic are off"}
-          </span>
-        </div>
+            </span>
+          </div>
+        )}
       </div>
       <div className="preview-controls">
+        {connected && <CallAudio />}
         <div className="device-controls">
           <button
             className={`device-button ${!micOn ? "device-off" : ""}`}
@@ -347,6 +320,20 @@ export default function VideoPlayer() {
           </button>
         </div>
         <DeviceSettings />
+        {connected && (
+          <button
+            className="device-button"
+            onClick={toggleChat}
+            aria-label={chatOpen ? "Close chat" : "Open chat"}
+            aria-expanded={chatOpen}
+            aria-controls="call-panel"
+          >
+            <Icon name="chat" /> Chat{" "}
+            {unreadMessages > 0 && (
+              <span className="unread-count">{unreadMessages}</span>
+            )}
+          </button>
+        )}
         {connected && navigator.mediaDevices?.getDisplayMedia && (
           <button
             className={`device-button ${screenStream ? "sharing-active" : ""}`}
@@ -369,7 +356,7 @@ export default function VideoPlayer() {
             <Icon name="phoneOff" /> Leave call
           </button>
         )}
-        {localStream && cameraOn && (!connected || showSelf) && (
+        {localStream && cameraOn && (
           <div className="preview-zoom">
             <label htmlFor="preview-zoom">Zoom</label>
             <input
@@ -379,7 +366,7 @@ export default function VideoPlayer() {
               max="3"
               step="0.1"
               value={zoom}
-              aria-label="Zoom your preview"
+              aria-label="Camera zoom"
               aria-valuetext={`${zoom.toFixed(1)}×`}
               onChange={(event) => setZoom(Number(event.target.value))}
             />

@@ -5,8 +5,11 @@ import Icon from "./Icon.jsx";
 export default function DeviceSettings() {
   const dialog = useRef(null);
   const [devices, setDevices] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
   const {
     localStream,
+    micOn,
     deviceIds,
     changeDevice,
     changingDevice,
@@ -35,12 +38,42 @@ export default function DeviceSettings() {
       navigator.mediaDevices?.removeEventListener("devicechange", refresh);
     };
   }, [localStream]);
+  useEffect(() => {
+    if (!open || !localStream) return;
+    const context = new AudioContext();
+    const source = context.createMediaStreamSource(localStream);
+    const analyser = context.createAnalyser();
+    source.connect(analyser);
+    context.resume().catch(() => {});
+    const samples = new Float32Array(analyser.fftSize);
+    const timer = setInterval(() => {
+      analyser.getFloatTimeDomainData(samples);
+      setMicLevel(
+        Math.min(
+          1,
+          Math.sqrt(
+            samples.reduce((sum, value) => sum + value * value, 0) /
+              samples.length,
+          ) * 4,
+        ),
+      );
+    }, 100);
+    return () => {
+      clearInterval(timer);
+      source.disconnect();
+      context.close();
+      setMicLevel(0);
+    };
+  }, [open, localStream]);
 
   return (
     <>
       <button
         className="device-button"
-        onClick={() => dialog.current.showModal()}
+        onClick={() => {
+          setOpen(true);
+          dialog.current.showModal();
+        }}
       >
         <Icon name="settings" /> <span>Devices</span>
       </button>
@@ -48,6 +81,7 @@ export default function DeviceSettings() {
         ref={dialog}
         className="help-dialog device-dialog"
         aria-labelledby="devices-title"
+        onClose={() => setOpen(false)}
         onClick={(event) => {
           if (event.target === dialog.current) dialog.current.close();
         }}
@@ -89,6 +123,22 @@ export default function DeviceSettings() {
             </select>
           </label>
         ))}
+        {localStream && (
+          <label className="device-field">
+            Microphone activity
+            <meter
+              min="0"
+              max="1"
+              value={micLevel}
+              aria-label="Microphone activity"
+            />
+            <span>
+              {micOn
+                ? "Speak or sing to check your microphone."
+                : "Your microphone is muted."}
+            </span>
+          </label>
+        )}
         {typeof HTMLMediaElement.prototype.setSinkId === "function" && (
           <label className="device-field">
             Speaker
@@ -122,8 +172,8 @@ export default function DeviceSettings() {
           </label>
         )}
         <p>
-          Shortcuts: Alt + M for microphone, Alt + V for camera. Preview zoom
-          only changes your view.
+          Shortcuts: Alt + M for microphone, Alt + V for camera. Camera zoom
+          changes what both of you see.
         </p>
         {error && <p role="alert">{error}</p>}
         <button

@@ -17,6 +17,7 @@ export default function Sidebar() {
     declineCall,
     leaveCall,
     remoteName,
+    chatOpen,
   } = useCall();
   const [target, setTarget] = useState(
     () => new URLSearchParams(window.location.search).get("call") || "",
@@ -60,7 +61,12 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="call-panel" aria-label="Start or join a call">
+    <aside
+      id="call-panel"
+      className="call-panel"
+      aria-label="Start or join a call"
+      hidden={phase === "connected" && !chatOpen}
+    >
       <div className="call-panel-main">
         <span className="eyebrow">A MOMENT AWAY</span>
         <h2>

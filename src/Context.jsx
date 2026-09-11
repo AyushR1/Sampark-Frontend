@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import Peer from "peerjs";
 import { displayName, mediaError, readCallId } from "./call-utils.js";
+import { createCameraTrack } from "./camera-track.js";
 
 const CallContext = createContext(null);
 export const useCall = () => useContext(CallContext);
@@ -28,16 +29,34 @@ export function CallProvider({ children }) {
   const [changingDevice, setChangingDevice] = useState(false);
   const [speakerId, setSpeakerId] = useState("");
   const [messages, setMessages] = useState([]);
+  const [zoom, setZoomValue] = useState(1);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const runtime = useRef({ epoch: 0 });
   const r = runtime.current;
   r.name = name;
   r.micOn = micOn;
   r.cameraOn = cameraOn;
   r.deviceIds = deviceIds;
+  r.zoom = zoom;
+  r.chatOpen = chatOpen;
+
+  function setZoom(value) {
+    if (!Number.isFinite(value) || value < 1 || value > 3) return;
+    r.zoom = value;
+    r.camera?.setZoom(value);
+    setZoomValue(value);
+  }
+
+  function toggleChat() {
+    r.chatOpen = !r.chatOpen;
+    setChatOpen(r.chatOpen);
+    if (r.chatOpen) setUnreadMessages(0);
+  }
 
   function watchTrack(track) {
     track.addEventListener("ended", () => {
-      if (r.stream?.getTracks().includes(track))
+      if (r.sourceStream?.getTracks().includes(track))
         fail(
           "A camera or microphone was disconnected. Check your devices and start again.",
         );
@@ -45,6 +64,7 @@ export function CallProvider({ children }) {
   }
 
   function addMessage(text, own) {
+    if (!own && !r.chatOpen) setUnreadMessages((count) => count + 1);
     // ponytail: keep the latest 200 messages in memory; add export for longer history.
     setMessages((previous) => [
       ...previous.slice(-199),
@@ -132,8 +152,10 @@ export function CallProvider({ children }) {
       setDeviceIds((ids) => ({ ...ids, [kind]: deviceId }));
       return;
     }
-    const { epoch, stream, media } = r;
-    const oldTrack = stream.getTracks().find((track) => track.kind === kind);
+    const { epoch, stream, sourceStream, media } = r;
+    const oldTrack = sourceStream
+      .getTracks()
+      .find((track) => track.kind === kind);
     if (!oldTrack) {
       setError(
         "End this audio-only session and turn video on to choose a camera.",
@@ -143,6 +165,7 @@ export function CallProvider({ children }) {
     r.changing = true;
     setChangingDevice(true);
     let replacement;
+    let camera;
     try {
       replacement = await navigator.mediaDevices.getUserMedia({
         [kind]: {
@@ -163,25 +186,38 @@ export function CallProvider({ children }) {
       }
       track.enabled = kind === "audio" ? r.micOn : r.cameraOn;
       if (kind === "audio") track.contentHint = "music";
+      if (kind === "video") camera = createCameraTrack(track, r.zoom, fail);
+      const outgoing = camera?.track || track;
+      outgoing.enabled = track.enabled;
       if (media) {
         const sender = media.peerConnection
           ?.getSenders()
           .find((sender) => sender.track?.kind === kind);
         if (!sender)
           throw new Error("That device can’t be changed during this call.");
-        await sender.replaceTrack(track);
+        await sender.replaceTrack(outgoing);
       }
       if (r.epoch !== epoch || r.media !== media) {
+        camera?.stop();
         track.stop();
         return;
       }
-      stream.removeTrack(oldTrack);
-      stream.addTrack(track);
+      sourceStream.removeTrack(oldTrack);
+      sourceStream.addTrack(track);
+      stream.removeTrack(
+        stream.getTracks().find((track) => track.kind === kind),
+      );
+      stream.addTrack(outgoing);
+      if (camera) {
+        r.camera?.stop();
+        r.camera = camera;
+      }
       watchTrack(track);
       oldTrack.stop();
       setLocalStream(new MediaStream(stream.getTracks()));
       setDeviceIds((ids) => ({ ...ids, [kind]: deviceId }));
     } catch (err) {
+      camera?.stop();
       replacement?.getTracks().forEach((track) => track.stop());
       if (r.epoch === epoch) setError(mediaError(err));
     } finally {
@@ -205,6 +241,7 @@ export function CallProvider({ children }) {
     r.remoteScreenCall = null;
     setRemoteScreen(null);
     setMessages([]);
+    setUnreadMessages(0);
     setRemoteStream(null);
     setStartedAt(null);
   }
@@ -212,12 +249,14 @@ export function CallProvider({ children }) {
   function reset(message = "", update = true) {
     r.epoch += 1;
     clearTimeout(r.timer);
-    const { data, media, peer, stream } = r;
+    const { data, media, peer, stream, sourceStream, camera } = r;
     Object.assign(r, {
       data: null,
       media: null,
       peer: null,
       stream: null,
+      sourceStream: null,
+      camera: null,
       start: null,
       accepted: false,
       sharing: false,
@@ -229,6 +268,8 @@ export function CallProvider({ children }) {
     data?.close();
     media?.close();
     peer?.destroy();
+    camera?.stop();
+    sourceStream?.getTracks().forEach((track) => track.stop());
     stream?.getTracks().forEach((track) => track.stop());
     if (!update) return;
     setLocalStream(null);
@@ -236,6 +277,9 @@ export function CallProvider({ children }) {
     setSharingPending(false);
     setChangingDevice(false);
     setMessages([]);
+    setZoomValue(1);
+    setChatOpen(false);
+    setUnreadMessages(0);
     setRemoteStream(null);
     setStartedAt(null);
     setPeerId("");
@@ -389,13 +433,20 @@ export function CallProvider({ children }) {
           stream.getTracks().forEach((track) => track.stop());
           return null;
         }
-        r.stream = stream;
+        r.sourceStream = stream;
         stream.getAudioTracks().forEach((track) => {
           track.enabled = r.micOn;
           track.contentHint = "music";
         });
         stream.getTracks().forEach(watchTrack);
-        setLocalStream(stream);
+        const sourceVideo = stream.getVideoTracks()[0];
+        if (sourceVideo)
+          r.camera = createCameraTrack(sourceVideo, r.zoom, fail);
+        r.stream = new MediaStream([
+          ...stream.getAudioTracks(),
+          ...(r.camera ? [r.camera.track] : []),
+        ]);
+        setLocalStream(r.stream);
         // ponytail: public signaling/ICE services; add managed TURN for guaranteed relay availability.
         const peer = new Peer(`sp-${crypto.randomUUID()}`, {
           secure: true,
@@ -562,6 +613,12 @@ export function CallProvider({ children }) {
       .forEach((track) => {
         track.enabled = enabled;
       });
+    r.sourceStream
+      ?.getTracks()
+      .filter((track) => track.kind === kind)
+      .forEach((track) => {
+        track.enabled = enabled;
+      });
     if (r.data?.open)
       r.data.send({
         type: "devices",
@@ -623,6 +680,11 @@ export function CallProvider({ children }) {
         speakerId,
         setSpeakerId,
         messages,
+        zoom,
+        setZoom,
+        chatOpen,
+        toggleChat,
+        unreadMessages,
         sendMessage,
         prepare,
         joinCall,

@@ -35,12 +35,14 @@ No environment variables or backend deployment are required. Alternatively, run 
 ### In-call controls
 
 - Microphone audio is configured for singing: noise suppression, echo cancellation, and automatic gain control are disabled, and audio tracks are marked as music. These settings also apply after switching microphones. Browser/device support still determines the actual capture processing; this does not make the transmitted audio lossless.
-- Camera previews show the full frame at **1×**. Use **Zoom** (up to 3×), **Reset**, and the self-view enlarge/hide controls to adjust your own view. These changes do not zoom or crop the video sent to the other person.
-- **Devices** selects a microphone, camera, and, where supported by the browser, speaker. Changing an active input preserves its mute state. An audio-only session still needs to be restarted with video enabled to add a camera.
+- Camera previews show the full frame at **1×**. **Zoom** (up to 3×) changes the camera video sent to both participants; **Reset** restores the full frame. Enlarging or hiding your self view affects only your layout.
+- Camera frames follow the source’s portrait/landscape dimensions. Zoom and orientation are encoded into the outgoing video using a canvas capped at 1280 pixels on the long edge and 30 fps. Phone sensor rotation still needs verification on physical devices.
+- **Devices** selects a microphone, camera, and, where supported by the browser, speaker. Its microphone activity meter helps check whether your input is picking up sound. Changing an active input preserves its mute state. An audio-only session still needs to be restarted with video enabled to add a camera.
+- Incoming audio has its own player so camera changes and screen sharing do not interrupt it. If playback is blocked, select **Enable call audio**.
 - **Share screen** opens the browser’s screen/window/tab picker on supported browsers. Camera and microphone stay connected. **Stop sharing**, the browser’s stop control, or leaving the call ends capture. Screen audio is not captured.
-- **In-call chat** sends plain text directly to the other participant. Messages are limited to 2,000 characters, the latest 200 stay in memory, and leaving clears them.
+- **Chat** opens an optional panel and shows an unread count while closed. Messages go directly to the other participant, are limited to 2,000 characters, the latest 200 stay in memory, and leaving clears them.
 - **Fullscreen** keeps the call controls visible. **Alt + M** toggles the microphone and **Alt + V** toggles the camera, except while typing or using a dialog.
-- The connected layout prioritizes video and keeps controls on screen at common laptop and phone sizes; very short windows can scroll so controls remain accessible.
+- The layout uses the available viewport height, with compact controls and less decoration on small screens. Landscape phones place the call form or open chat beside the preview. Device dialogs can scroll within the screen.
 
 Permission failures, unavailable devices, malformed or expired links, self-calls, offline state, cancelled setup, and unanswered calls show recovery messages. If the browser blocks audio playback, a button lets you start it manually. Names, links, and call history are not persisted by the application.
 
@@ -65,4 +67,4 @@ npm run test:browser
 LIVE_CALL_TEST=1 npm run test:browser
 ```
 
-Set `APP_URL` if Vite uses a different port, for example `APP_URL=http://127.0.0.1:5174`. Browser checks cover one-page layout, preview zoom/reset, device settings, permission denial, cancelled setup, invitation validation, and help. The live check also covers fullscreen, self-view controls, chat, input switching while muted, screen sharing and its cleanup, copying links, rejecting self-calls, decline/retry, accepting calls, hangup cleanup on both ends, and a second audio-only call. Screen-sharing tests use a synthetic canvas and never open the system screen picker. Screenshots are saved under the ignored `test-results/` directory.
+Set `APP_URL` if Vite uses a different port, for example `APP_URL=http://127.0.0.1:5174`. Browser checks cover one-page layout, preview zoom/reset, device settings, permission denial, cancelled setup, invitation validation, and help. The live check also covers received zoomed pixels and portrait/landscape dimensions, two-way microphone signal, mute/unmute, playback recovery, the microphone meter, fullscreen, self-view controls, optional chat, input switching, screen sharing and its cleanup, copying links, rejecting self-calls, decline/retry, accepting calls, hangup cleanup on both ends, and a second audio-only call. Screen-sharing tests use a synthetic canvas and never open the system screen picker. Screenshots are saved under the ignored `test-results/` directory.
